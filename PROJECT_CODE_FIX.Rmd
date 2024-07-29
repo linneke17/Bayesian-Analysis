@@ -1,0 +1,1134 @@
+---
+title: "Mini Project Final Report"
+author: "Group 1 LB-09"
+date: "2023-12-29"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+## LOGISTIC REGRESSION- BERNOULLI LIKELIHOOD with JAGS
+
+#MODEL DENGAN FEATURE ENGINEERING (LABEL ENCODING)
+```{r}
+set.seed(1717)
+```
+
+```{r}
+library(readr)
+df<-read.csv("healthcare-dataset-stroke-data.csv")
+head(df,5)
+```
+
+```{r}
+print("number of columns: ") 
+ncol(df)
+print("number of row: ") 
+nrow(df)
+print("name of variables: ")
+names(df)
+null_count <- colSums(is.na(df))
+print(null_count)
+print("is there any null value?")
+print(is.null(df))
+```
+
+```{r}
+summary(df)
+```
+
+```{r}
+str(df)
+```
+
+```{r}
+#drop id, karena id bukan termasuk sebagai feature dalam model
+df <- subset(df, select = -id)
+```
+
+```{r}
+# Menampilkan unique value dalam setiap kolom
+for (col in names(df)) {
+  unique_values <- unique(df[[col]])
+  cat(paste("Unique values in column", col, ":", toString(unique_values), "\n\n"))
+}
+```
+
+```{r}
+gender_others <- sum(df$gender == 'Other')
+print(gender_others)
+
+bmi_na <- sum(df$bmi == 'N/A')
+print(bmi_na)
+
+smoking_unknown <- sum(df$smoking_status  == 'Unknown')
+print(smoking_unknown)
+```
+
+```{r}
+#Categorical variabel --> LABEL ENCODING
+
+df$gender <- as.integer(as.factor(df$gender))
+df$hypertension  <- as.integer(as.factor(df$hypertension ))
+df$heart_disease <- as.integer(as.factor(df$heart_disease))
+df$ever_married <- as.integer(as.factor(df$ever_married))
+df$work_type  <- as.integer(as.factor(df$work_type ))
+df$Residence_type  <- as.integer(as.factor(df$Residence_type))
+df$smoking_status  <- as.integer(as.factor(df$smoking_status))
+```
+
+```{r}
+# Mengonversi "N/A" menjadi NA
+df$bmi[df$bmi == "N/A"] <- NA
+
+# Mengonversi kolom bmi menjadi numerik
+df$bmi <- as.numeric(df$bmi)
+
+# Menggantikan NA dengan mean data
+mean_bmi <- mean(df$bmi, na.rm = TRUE)
+df$bmi[is.na(df$bmi)] <- mean_bmi
+```
+
+```{r}
+mean_bmi
+```
+
+```{r}
+str(df)
+```
+
+```{r}
+Y <- df$stroke
+
+data_to_scale <- df[, c("age", "avg_glucose_level", "bmi")]
+scaled_data <- scale(data_to_scale)
+
+selected_columns <- df[, c("hypertension", "heart_disease", "gender", "ever_married", "work_type",  "Residence_type",  "smoking_status")]
+
+# Gabungkan scaled_data dan selected_columns
+X <- cbind(scaled_data, selected_columns)
+```
+
+```{r}
+n <- length(Y)
+p <- ncol(X)
+
+print(n)
+print(p)
+```
+
+#Karena jumlah data cukup banyak yaitu sebanyak 5110 dan terdapat 10 feature, maka untuk menghemat waktu dipilih iterasi=1000 dan burn=500
+```{r}
+library(rjags)
+burn <- 500
+iters <-1000 
+chains <-2
+```
+
+#MODEL NO RANDOM EFFECTS
+```{r}
+mod <- textConnection("model{
+  #likelihood
+  for(i in 1:n){
+  Y[i] ~ dbern(pi[i])
+  logit(pi[i]) <- beta[1] + X[i,1]*beta[2] + X[i,2]*beta[3] +
+                  X[i,3]*beta[4] + X[i,4]*beta[5] + X[i,5]*beta[6]+
+                  X[i,6]*beta[7] + X[i,7]*beta[8] + X[i,8]*beta[9] 
+                  + X[i,9]*beta[10] + X[i,10]*beta[11]
+  like[i] <- dbin(Y[i],pi[i],1) # For WAIC computation
+  }
+  #prior
+  for(j in 1:11){beta[j] ~ dnorm(0,0.01)}
+}")
+```
+
+```{r}
+data <- list(Y=Y,X=X,n=n)
+model <- jags.model(mod,data=data, n.chains = chains,quiet=TRUE)
+update(model,burn)
+```
+
+TANPA THINNING (thin=1)
+```{r}
+#Tanpa thinning
+samps <- coda.samples(model,variable.names=c("beta"),n.iter =iters, n.thin=1)
+
+summary(samps)
+
+#Graphical Convergence Diagnostics
+par(mar=c(1,1,1,1))
+plot(samps)
+```
+
+```{r}
+par(mar=c(1,1,1,1))
+autocorr.plot(samps)
+```
+
+#Numerical Convergence Diagnostics
+```{r}
+# Autocorrelation pada chain 1
+autocorr(samps[[1]],lag=1)
+```
+
+```{r}
+effectiveSize(samps)
+```
+
+```{r}
+#R less than 1.1 indicates convergence
+gelman.diag(samps)
+```
+
+```{r}
+geweke.diag(samps[1])
+geweke.diag(samps[2]) 
+```
+
+THINNING = 5
+```{r}
+#THIN =5
+samps <- coda.samples(model,variable.names=c("beta"),n.iter = iters,n.thin=5)
+
+summary(samps)
+
+#Graphical Convergence Diagnostics
+par(mar=c(1,1,1,1))
+plot(samps)
+```
+
+```{r}
+par(mar=c(1,1,1,1))
+autocorr.plot(samps)
+```
+
+#Numerical Convergence Diagnostics
+```{r}
+# Autocorrelation pada chain 1
+autocorr(samps[[1]],lag=1)
+```
+
+```{r}
+effectiveSize(samps)
+```
+
+```{r}
+gelman.diag(samps)
+```
+
+```{r}
+geweke.diag(samps[1]) 
+geweke.diag(samps[2])
+```
+
+Bisa dilihat bahwa convergence diagnostic dari model dengan thinning=5 sudah cukup bagus, sebenarnya bisa diimprove lagi dengan memperbanyak iterasi, namun karena keterbatasan waktu jadi tetap digunakan burn=500, iter=1000.
+
+
+
+hitung DIC WAIC model dengan all features agar bisa dicompare dengan  model selected feature dari hasil SSVS
+
+DIC WAIC THINNING=5
+```{r}
+#THIN =5
+samps <- coda.samples(model,variable.names=c("like"),n.iter = iters,n.thin=5)
+```
+
+```{r}
+#Compute DIC
+DIC <- dic.samples(model,n.iter=iters,n.thin=5)
+
+DIC
+```
+
+```{r}
+#Compute WAIC
+like <- rbind(samps[[1]],samps[[2]])
+fbar <-colMeans(like)
+Pw <- sum(apply(log(like), 2, var))
+WAIC <- -2*sum(log(fbar))+2*Pw
+
+WAIC
+```
+
+SSVS LABEL ENCODING DENGAN THINNING 5
+```{r}
+m <- textConnection("model{
+  #likelihood
+  for(i in 1:n){
+  Y[i] ~ dbern(pi[i])
+  logit(pi[i]) <- alpha + X[i,1]*beta[1] + X[i,2]*beta[2] +
+                  X[i,3]*beta[3] + X[i,4]*beta[4] + X[i,5]*beta[5]+
+                  X[i,6]*beta[6] + X[i,7]*beta[7] 
+                  + X[i,8]*beta[8] + X[i,9]*beta[9] + X[i,10]*beta[10]
+  like[i] <- dbin(Y[i],pi[i],1) # For WAIC computation
+  }
+  #prior
+  for(j in 1:10){
+  beta[j] <- gamma[j]*delta[j]
+  gamma[j] ~ dbern(0.5)
+  delta[j] ~ dnorm(0,tau)
+  }
+alpha ~ dnorm(0,0.01)
+tau ~ dgamma(0.1,0.1)
+
+}")
+```
+
+```{r}
+data <- list(Y=Y,X=X,n=n)
+model <- jags.model(m,data=data, n.chains = chains,quiet=TRUE)
+update(model,burn)
+```
+
+THINNING=5
+```{r}
+#THIN=5
+samps <- coda.samples(model,variable.names=c("beta"),n.iter =iters, n.thin=5)
+summary(samps)
+
+#Graphical Convergence Diagnostics
+par(mar=c(1,1,1,1))
+plot(samps)
+```
+
+```{r}
+beta <- NULL
+for(l in 1:chains){
+beta <- rbind(beta,samps[[l]])
+}
+
+names <- c("age", "avg_glucose_level", "bmi", "hypertension", "heart_disease", "gender", "ever_married",  "work_type", "Residence_type", "smoking_status")
+
+colnames(beta) <- names
+for(j in 1:10){
+hist(beta[,j],xlab=expression(beta[j]),ylab="Posterior density",
+breaks=100,main=names[j])
+}
+
+```
+
+```{r}
+library(knitr)
+
+inc_prob <- apply(beta != 0, 2, mean) 
+q <- t(apply(beta, 2, quantile, c(0.5, 0.05, 0.95)))
+out <- cbind(inc_prob, q)
+kable(round(out, 2))
+
+```
+
+```{r}
+model <- "Intercept"
+for(j in 1:10){
+model <- paste(model,ifelse(beta[,j]==0,"","+"))
+model <- paste(model,ifelse(beta[,j]==0,"",names[j]))
+}
+model[1:10]
+
+```
+
+
+```{r}
+beta[1:5,]
+```
+
+
+```{r}
+model_probs <- table(model)/length(model)
+model_probs <- sort(model_probs,dec=T)
+round(model_probs,3)
+
+```
+
+DARI HASIL SSVS MAKA DIPUTUSKAN FITUR YANG DIGUNAKAN ADALAH:
+
+AGE, AVG_GLUCOSE_LEVEL, DAN HYPERTENSION
+
+```{r}
+# Membuat dataframe baru X_new
+X_new <- X[, c("age", "avg_glucose_level", "hypertension")]
+```
+
+MEMBUAT MODEL Selected Features dari hasil SSVS
+```{r}
+n <- length(Y)
+p <- ncol(X_new)
+
+print(n)
+print(p)
+```
+
+#Karena ada keterbatasan waktu, maka dipilih iterasi=1000 dan burnnya 500
+```{r}
+library(rjags)
+burn <- 500
+iters <-1000 
+chains <-2
+```
+
+
+```{r}
+mod <- textConnection("model{
+  #likelihood
+  for(i in 1:n){
+  Y[i] ~ dbern(pi[i])
+  logit(pi[i]) <- beta[1] + X[i,1]*beta[2] + X[i,2]*beta[3] +
+                  X[i,3]*beta[4] 
+  like[i] <- dbin(Y[i],pi[i],1) # For WAIC computation
+  }
+  #prior
+  for(j in 1:4){beta[j] ~ dnorm(0,0.01)}
+}")
+```
+
+
+```{r}
+data <- list(Y=Y,X=X_new,n=n)
+model <- jags.model(mod,data=data, n.chains = chains,quiet=TRUE)
+update(model,burn)
+```
+
+THIN=5
+```{r}
+#Thin=5
+samps <- coda.samples(model,variable.names=c("beta"),n.iter =iters, n.thin=5)
+
+summary(samps)
+
+#Graphical Convergence Diagnostics
+par(mar=c(1,1,1,1))
+plot(samps)
+```
+
+
+```{r}
+par(mar=c(1,1,1,1))
+autocorr.plot(samps)
+```
+
+#Numerical Convergence Diagnostics
+```{r}
+# Autocorrelation pada chain 1
+autocorr(samps[[1]],lag=1)
+```
+
+```{r}
+effectiveSize(samps)
+```
+
+```{r}
+gelman.diag(samps)
+```
+
+```{r}
+geweke.diag(samps[1])
+geweke.diag(samps[2])
+```
+
+hitung DIC WAICnya, agar bisa dicompare dengan  model dengan all feature
+
+DIC WAIC THINNING=5
+```{r}
+#THIN =5
+samps <- coda.samples(model,variable.names=c("like"),n.iter = iters,n.thin=5)
+```
+
+```{r}
+#Compute DIC
+DIC <- dic.samples(model,n.iter=iters,n.thin=5)
+
+DIC
+```
+
+```{r}
+#Compute WAIC
+like <- rbind(samps[[1]],samps[[2]])
+fbar <-colMeans(like)
+Pw <- sum(apply(log(like), 2, var))
+WAIC <- -2*sum(log(fbar))+2*Pw
+
+WAIC
+```
+
+
+Berdasarkan nilai DIC WAIC model dengan feature engineering: label encoding dengan
+all features dan selected features berdasarkan hasil SSVS dengan burn=500, iterasi=1000, chain=2, dan thin=5 mempunyai nilai DIC WAIC yang tidak jauh berbeda.
+
+
+
+======================================================================
+======================================================================
+
+
+#MODEL DENGAN FEATURE ENGINEERING (ONE HOT ENCODING)
+
+```{r setup, include=FALSE}
+library(readr)
+```
+
+```{r}
+df<-read.csv("healthcare-dataset-stroke-data.csv")
+head(df,20)
+print("number of columns: ") 
+ncol(df)
+print("number of row: ") 
+nrow(df)
+print("name of variables: ")
+names(df)
+null_count <- colSums(is.na(df))
+print(null_count)
+print("is there any null value?")
+print(is.null(df))
+```
+
+```{r}
+summary(df)
+```
+
+```{r}
+str(df)
+```
+
+```{r}
+#drop id, karena id bukan termasuk sebagai feature dalam model
+df <- subset(df, select = -id)
+```
+
+```{r}
+# Menampilkan unique value dalam setiap kolom
+for (col in names(df)) {
+  unique_values <- unique(df[[col]])
+  cat(paste("Unique values in column", col, ":", toString(unique_values), "\n\n"))
+}
+```
+
+```{r}
+gender_others <- sum(df$gender == 'Other')
+print(gender_others)
+
+bmi_na <- sum(df$bmi == 'N/A')
+print(bmi_na)
+
+smoking_unknown <- sum(df$smoking_status  == 'Unknown')
+print(smoking_unknown)
+```
+
+
+```{r}
+#ONE HOT ENCODING
+library(caret)
+
+# Konversi kolom-kolom kategori menjadi faktor
+df$gender <- as.factor(df$gender)
+#df$hypertension <- as.factor(df$hypertension)
+#df$heart_disease <- as.factor(df$heart_disease)
+df$ever_married <- as.factor(df$ever_married)
+df$work_type <- as.factor(df$work_type)
+df$Residence_type <- as.factor(df$Residence_type)
+df$smoking_status <- as.factor(df$smoking_status)
+
+# Pilih kolom-kolom yang akan di-encode
+cols_to_encode <- c("gender", "ever_married", "work_type", "Residence_type", "smoking_status")
+
+# Buat variabel dummy
+dummy_cols <- dummyVars(~., data = df[, cols_to_encode])
+
+# Transformasikan data dengan variabel dummy
+df_onehot <- predict(dummy_cols, newdata = df)
+
+
+# Gabungkan dengan data asli
+df <- cbind(df, df_onehot)
+
+# Hapus kolom asli yang sudah di-encode
+df <- df[, !names(df) %in% cols_to_encode]
+
+# Tampilkan hasil
+print(head(df))
+```
+
+
+#mengubah NA dalam kolom bmi menjadi mean
+```{r}
+# Mengonversi "N/A" menjadi NA
+df$bmi[df$bmi == "N/A"] <- NA
+
+# Mengonversi kolom bmi menjadi numerik
+df$bmi <- as.numeric(df$bmi)
+
+# Menggantikan NA dengan mean data
+mean_bmi <- mean(df$bmi, na.rm = TRUE)
+df$bmi[is.na(df$bmi)] <- mean_bmi
+```
+
+```{r}
+mean_bmi
+```
+
+```{r}
+str(df)
+```
+
+#variable Y
+```{r}
+Y <- df$stroke
+
+```
+
+#scaling numerical data
+```{r}
+data_to_scale <- df[, c("age", "avg_glucose_level", "bmi")]
+
+# Lakukan standarisasi
+scaled_data <- scale(data_to_scale)
+
+```
+
+```{r}
+column1 <- df[, c("hypertension", "heart_disease", "gender.Female", "gender.Male", "gender.Other")]
+column2 <- df[, c("ever_married.No", "ever_married.Yes", "work_type.children", "work_type.Govt_job", "work_type.Never_worked", "work_type.Private", "work_type.Self-employed")]
+column3 <- df[, c("Residence_type.Rural", "Residence_type.Urban", "smoking_status.formerly smoked", "smoking_status.never smoked", "smoking_status.smokes", "smoking_status.Unknown")]
+```
+
+```{r}
+#menggabungkan feature
+X <- cbind(scaled_data, column1, column2, column3)
+
+```
+
+```{r}
+n <- length(Y)
+p <- ncol(X)
+
+print(n)
+print(p)
+```
+
+#Karena ada sebanyak 5110 baris dan 21 feature dan ada keterbatasan waktu, maka dipilih iterasi=1000 dan burn=500
+```{r}
+library(rjags)
+burn <- 500
+iters <-1000 
+chains <-2
+```
+
+```{r}
+mod <- textConnection("model{
+  #likelihood
+  for(i in 1:n){
+  Y[i] ~ dbern(pi[i])
+  logit(pi[i]) <- beta[1] + X[i,1]*beta[2] + X[i,2]*beta[3] +
+                  X[i,3]*beta[4] + X[i,4]*beta[5] + X[i,5]*beta[6]+
+                  X[i,6]*beta[7] + X[i,7]*beta[8]+ X[i,8]*beta[9] + X[i,9]*beta[10] 
+                  + X[i,10]*beta[11]+ X[i,11]*beta[12] + X[i,12]*beta[13] +
+                  X[i,13]*beta[14] + X[i,14]*beta[15] + X[i,15]*beta[16]+
+                  X[i,16]*beta[17] + X[i,17]*beta[18]+ X[i,18]*beta[19] 
+                  + X[i,19]*beta[20] + X[i,20]*beta[21] + X[i,21]*beta[22]
+    like[i] <- dbin(Y[i],pi[i],1) # For WAIC computation
+  }
+  #prior
+  for(j in 1:22){beta[j] ~ dnorm(0,0.01)}
+}")
+```
+
+```{r}
+data <- list(Y=Y,X=X,n=n)
+model <- jags.model(mod,data=data, n.chains = chains,quiet=TRUE)
+update(model,burn)
+```
+
+TANPA THINNING (thin=1)
+```{r}
+#Tanpa thinning
+samps <- coda.samples(model,variable.names=c("beta"),n.iter =iters, n.thin=1)
+
+summary(samps)
+
+#Graphical Convergence Diagnostics
+par(mar=c(1,1,1,1))
+plot(samps)
+```
+
+```{r}
+par(mar=c(1,1,1,1))
+autocorr.plot(samps)
+```
+
+#Numerical Convergence Diagnostics
+```{r}
+# Autocorrelation pada chain 1
+autocorr(samps[[1]],lag=1)
+```
+
+```{r}
+effectiveSize(samps)
+```
+
+```{r}
+gelman.diag(samps)
+```
+
+```{r}
+geweke.diag(samps[1])
+geweke.diag(samps[2])
+
+```
+
+Bisa dilihat dari nilai gelman dan geweke bahwa convergence model masih sangat jelek.
+Oleh karena itu, untuk improve convergence dicoba untuk memperbanyak iterasi
+dan juga mengubah thinning menjadi thin=5
+
+
+BURN= 1000, ITERASI=2000, THIN=5
+```{r}
+#thinning 5
+burn <- 1000
+iters <-2000 
+chains <-2
+
+#data <- list(Y=Y,X=X,n=n)
+#model <- jags.model(mod,data=data, n.chains = chains,quiet=TRUE)
+update(model,burn)
+
+samps <- coda.samples(model,variable.names=c("beta"),n.iter =iters, n.thin=5)
+
+summary(samps)
+
+#Graphical Convergence Diagnostics
+par(mar=c(1,1,1,1))
+plot(samps)
+```
+
+```{r}
+par(mar=c(1,1,1,1))
+autocorr.plot(samps)
+```
+
+#Numerical Convergence Diagnostics
+```{r}
+# Autocorrelation pada chain 1
+autocorr(samps[[1]],lag=5)
+```
+
+```{r}
+effectiveSize(samps)
+```
+
+```{r}
+gelman.diag(samps)
+```
+
+```{r}
+geweke.diag(samps[1])
+geweke.diag(samps[2])
+```
+
+Dari nilai geweke dan gelman, bisa dilihat bahwa sebenarnya model masih sangat jaauh dari konvergen, namun karena waktu run yang sangat lama, tidak dicoba lagi dengan memperbanyak iterasi.
+
+
+Hitung DIC WAIC agar bisa di compare dengan  model dengan selected features hasil SSVS
+
+DIC WAIC THINNING=5
+```{r}
+#THIN =5
+samps <- coda.samples(model,variable.names=c("like"),n.iter = iters,n.thin=5)
+```
+
+```{r}
+#Compute DIC
+DIC <- dic.samples(model,n.iter=iters,n.thin=5)
+
+DIC
+```
+
+```{r}
+#Compute WAIC
+like <- rbind(samps[[1]],samps[[2]])
+fbar <-colMeans(like)
+Pw <- sum(apply(log(like), 2, var))
+WAIC <- -2*sum(log(fbar))+2*Pw
+
+WAIC
+```
+
+
+SSVS model dengan feature engineering (one hot encoding) dengan
+burn <- 1000, iters <-2000, chains <-2
+
+```{r}
+library(rjags)
+mod <- textConnection("model{
+  #likelihood
+  for(i in 1:n){
+  Y[i] ~ dbern(pi[i])
+  logit(pi[i]) <- alpha + X[i,1]*beta[1] + X[i,2]*beta[2] +
+                  X[i,3]*beta[3] + X[i,4]*beta[4] + X[i,5]*beta[5]+
+                  X[i,6]*beta[6] + X[i,7]*beta[7]+ X[i,8]*beta[8] + X[i,9]*beta[9] 
+                  + X[i,10]*beta[10]+ X[i,11]*beta[11] + X[i,12]*beta[12] +
+                  X[i,13]*beta[13] + X[i,14]*beta[14] + X[i,15]*beta[15]+
+                  X[i,16]*beta[16] + X[i,17]*beta[17]+ X[i,18]*beta[18] 
+                  + X[i,19]*beta[19] + X[i,20]*beta[20] + X[i,21]*beta[21]
+  like[i] <- dbin(Y[i],pi[i],1) # For WAIC computation
+  }
+  #prior
+  for(j in 1:21){
+  beta[j] <- gamma[j]*delta[j]
+  gamma[j] ~ dbern(0.5)
+  delta[j] ~ dnorm(0,tau)
+  }
+  
+  alpha ~ dnorm(0,0.01)
+  tau ~ dgamma(0.1,0.1)
+}")
+
+```
+
+```{r}
+burn <- 1000
+iters <-2000 
+chains <-2
+data <- list(Y=Y,X=X,n=n)
+model <- jags.model(mod,data=data, n.chains = chains,quiet=TRUE)
+update(model,burn)
+
+#THINNING=5
+samps <- coda.samples(model,variable.names = c("beta"),n.iter = iters,n.thin=5)
+
+summary(samps)
+
+#Graphical Convergence Diagnostics
+par(mar=c(1,1,1,1))
+plot(samps)
+
+```
+
+```{r}
+beta <- NULL
+for(l in 1:chains){
+beta <- rbind(beta,samps[[l]])
+}
+
+names <- c("age", "avg_glucose_level", "bmi", "hypertension", "heart_disease", "gender.Female", "gender.Male", "gender.Other", "ever_married.No", "ever_married.Yes", "work_type.children", "work_type.Govt_job", "work_type.Never_worked", "work_type.Private", "work_type.Self-employed", "Residence_type.Rural", "Residence_type.Urban", "smoking_status.formerly smoked", "smoking_status.never smoked", "smoking_status.smokes", "smoking_status.Unknown")
+
+colnames(beta) <- names
+for(j in 1:21){
+hist(beta[,j],xlab=expression(beta[j]),ylab="Posterior density",
+breaks=100,main=names[j])
+}
+
+```
+
+```{r}
+library(knitr)
+
+inc_prob <- apply(beta != 0, 2, mean) 
+q <- t(apply(beta, 2, quantile, c(0.5, 0.05, 0.95)))
+out <- cbind(inc_prob, q)
+kable(round(out, 2))
+
+```
+
+```{r}
+model <- "Intercept"
+for(j in 1:21){
+model <- paste(model,ifelse(beta[,j]==0,"","+"))
+model <- paste(model,ifelse(beta[,j]==0,"",names[j]))
+}
+model[1:21]
+
+```
+
+```{r}
+beta[1:5,]
+
+```
+
+Dari hasil SSVS, feature yang terpilih adalah: 
+age + avg_glucose_level   + hypertension
+
+Namun ternyata feature yang terpilih sama dengan feature yang terpilih pada
+model dengan label encoding--> oleh karena computation time ONE HOT encoding yang lebih lama, tidak lagi dicoba model dengan feature hasil SSVS dengan ONE HOT encoding.
+
+
+Berdasarkan hasil convergence diagnostic, model dengan feature engineering 
+LABEL encoding mempunyai hasil yang lebih bagus daripada ONE HOT encoding, 
+sehingga diputuskan menggunakan model LABEL ENCODING. 
+
+=================================================================
+=================================================================
+
+Model dengan feature engineering: LABEL ENCODING dengan 
+all features dan selected features mempunyai hasil yang comparable berdasarkan nilai DIC WAIC. 
+nilai DIC dan WAIC kedua model yang tidak beda jauh.
+Oleh karena itu dilakukan posterior predictive check untuk keduanya. 
+
+
+#POSTERIOR PREDICTIVE CHECK
+
+Load data dari awal 
+```{r}
+library(readr)
+df<-read.csv("healthcare-dataset-stroke-data.csv")
+head(df,20)
+```
+
+```{r}
+print("number of columns: ") 
+ncol(df)
+print("number of row: ") 
+nrow(df)
+print("name of variables: ")
+names(df)
+null_count <- colSums(is.na(df))
+print(null_count)
+print("is there any null value?")
+print(is.null(df))
+```
+
+```{r}
+summary(df)
+```
+
+```{r}
+str(df)
+```
+
+```{r}
+#drop id, karena id bukan termasuk sebagai feature dalam model
+df <- subset(df, select = -id)
+```
+
+```{r}
+# Menampilkan unique value dalam setiap kolom
+for (col in names(df)) {
+  unique_values <- unique(df[[col]])
+  cat(paste("Unique values in column", col, ":", toString(unique_values), "\n\n"))
+}
+```
+
+```{r}
+gender_others <- sum(df$gender == 'Other')
+print(gender_others)
+
+bmi_na <- sum(df$bmi == 'N/A')
+print(bmi_na)
+
+smoking_unknown <- sum(df$smoking_status  == 'Unknown')
+print(smoking_unknown)
+```
+
+```{r}
+#Categorical variabel --> LABEL ENCODING
+
+df$gender <- as.integer(as.factor(df$gender))
+df$hypertension  <- as.integer(as.factor(df$hypertension ))
+df$heart_disease <- as.integer(as.factor(df$heart_disease))
+df$ever_married <- as.integer(as.factor(df$ever_married))
+df$work_type  <- as.integer(as.factor(df$work_type ))
+df$Residence_type  <- as.integer(as.factor(df$Residence_type))
+df$smoking_status  <- as.integer(as.factor(df$smoking_status))
+```
+
+```{r}
+# Mengonversi "N/A" menjadi NA
+df$bmi[df$bmi == "N/A"] <- NA
+
+# Mengonversi kolom bmi menjadi numerik
+df$bmi <- as.numeric(df$bmi)
+
+# Menggantikan NA dengan mean data
+mean_bmi <- mean(df$bmi, na.rm = TRUE)
+df$bmi[is.na(df$bmi)] <- mean_bmi
+```
+
+```{r}
+mean_bmi
+```
+
+```{r}
+str(df)
+```
+
+```{r}
+Y <- df$stroke
+
+data_to_scale <- df[, c("age", "avg_glucose_level", "bmi")]
+scaled_data <- scale(data_to_scale)
+
+selected_columns <- df[, c("hypertension", "heart_disease", "gender", "ever_married", "work_type",  "Residence_type",  "smoking_status")]
+
+# Gabungkan scaled_data dan selected_columns
+X <- cbind(scaled_data, selected_columns)
+```
+
+```{r}
+n <- length(Y)
+p <- ncol(X)
+
+print(n)
+print(p)
+```
+
+#Karena ada keterbatasan waktu, maka dipilih iterasi=1000 dan burnnya 500
+```{r}
+library(rjags)
+burn <- 500
+iters <-1000 
+chains <-2
+```
+
+#MODEL
+```{r}
+#MODEL 1: ALL FEATURES
+model_all_features <- textConnection("model{
+  #likelihood
+  for(i in 1:n){
+  Y[i] ~ dbern(pi[i])
+  logit(pi[i]) <- alpha + X[i,1]*beta[1] + X[i,2]*beta[2] +
+                  X[i,3]*beta[3] + X[i,4]*beta[4] + X[i,5]*beta[5]+
+                  X[i,6]*beta[6] + X[i,7]*beta[7] 
+                  + X[i,8]*beta[8] + X[i,9]*beta[9] + X[i,10]*beta[10]
+  }
+  
+  #prior
+  for(j in 1:10){beta[j] ~ dnorm(0,0.01)}
+  alpha ~ dnorm(0,0.01)
+  
+  #Posterior predictive checks 
+  for(i in 1:n){
+    Y2[i] ~ dbern(pi[i])
+  }
+  #statistik
+  D[1] <- sum(Y2[])/n
+  
+}")
+
+
+#MODEL 2: SELECTED FEATURES
+model_selected_features <- textConnection("model{
+  #likelihood
+  for(i in 1:n){
+  Y[i] ~ dbern(pi[i])
+  logit(pi[i]) <- alpha + X[i,1]*beta[1] + X[i,2]*beta[2] +
+                  X[i,3]*beta[3] 
+  }
+  
+  #prior
+  for(j in 1:3){beta[j] ~ dnorm(0,0.01)}
+  alpha ~ dnorm(0,0.01)
+  
+  #Posterior predictive checks 
+  for(i in 1:n){
+    Y2[i] ~ dbern(pi[i])
+  }
+  #statistiknya
+  D[1] <- sum(Y2[])/n
+  
+}")
+
+
+data <- list(Y=Y,X=X,n=n)
+
+```
+
+
+```{r}
+model1 <- jags.model(model_all_features,data=data, n.chains = chains,quiet=TRUE)
+update(model1,burn)
+samps1 <- coda.samples(model1,variable.names=c("D","beta"),n.iter =iters, n.thin=5)
+
+summary(samps1)
+
+#Graphical Convergence Diagnostics
+par(mar=c(1,1,1,1))
+plot(samps1)
+
+D1 <- samps1[[1]]
+```
+
+
+```{r}
+model2 <- jags.model(model_selected_features,data=data, n.chains = chains,quiet=TRUE)
+update(model2,burn)
+samps2 <- coda.samples(model2,variable.names=c("D","beta"),n.iter =iters, n.thin=5)
+
+summary(samps2)
+
+#Graphical Convergence Diagnostics
+par(mar=c(1,1,1,1))
+plot(samps2)
+
+D2 <- samps2[[1]] 
+```
+
+```{r}
+#compute the test stats for the data
+D0 <- c(sum(Y)/n)
+Dnames <- c("Proporsi Y")
+```
+
+```{r}
+#compute the test stats for the model
+pval1 <- rep(0,1) 
+names(pval1) <- Dnames
+pval2 <- pval1
+
+```
+
+```{r}
+for(j in 1:1){
+  plot(density(D1[,j]),xlim=range(c(D0[j],D1[,j],D2[,j])),
+       xlab="D",ylab="Posterior probability", main=Dnames[j])
+  lines(density(D2[,j]),col=2)
+  abline(v=D0[j],col=3)
+  legend("topleft",c("All","Selected","Data"),lty=1,col=1:3,bty="n")
+  
+  pval1[j] <- mean(D1[,j]>D0[j])
+  pval2[j] <- mean(D2[,j]>D0[j])
+}
+
+```
+
+```{r}
+pval1
+```
+
+```{r}
+pval2
+```
+
+Berdasarkan Bayesian p-value, dapat dilihat bahwa tidak ada perbedaan yang ajuh atau signifikan antara kedua model.
+Kedua model fit data dengan baik.
+
+
+```{r}
+# Extract the samples for alpha (intercept)
+alpha_samples <- samps2$alpha[, 1]
+
+# Get summary statistics or inspect the samples
+summary(alpha_samples)
+```
+
+```{r}
+samps2 <- coda.samples(model2,variable.names=c("D","alpha", "beta"),n.iter =1000, n.thin=5)
+
+summary(samps2)
+```
+
+```{r}
+# Assuming 'samps2' is your coda.samples output
+# Extract the samples for alpha (intercept)
+alpha_samples <- samps2[[1]][, "alpha"]
+
+# Get summary statistics or inspect the samples
+summary(alpha_samples)
+```
+
+
+```{r}
+samps1 <- coda.samples(model1,variable.names=c("D","alpha", "beta"),n.iter =iters, n.thin=5)
+
+summary(samps1)
+```
+
+
